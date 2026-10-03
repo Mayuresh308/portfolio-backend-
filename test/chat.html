@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat test</title>
+</head>
+<body>
+  <h1>Chat backend test</h1>
+  <p>
+    Endpoint: <input id="endpoint" size="40" value="http://localhost:3000/api/chat">
+    <button id="reset" type="button">Reset conversation</button>
+  </p>
+  <div id="log"></div>
+  <form id="form">
+    <input id="input" size="60" maxlength="600" placeholder="Ask about Mayuresh" autofocus>
+    <button type="submit">Send</button>
+  </form>
+  <p id="status"></p>
+
+  <script>
+    // Opened from disk, this page sends Origin "null": add null to ALLOWED_ORIGINS in .env.local,
+    // or serve it over http (e.g. `pnpm dlx serve test -l 1313`).
+    const messages = [];
+    const log = document.getElementById("log");
+    const status = document.getElementById("status");
+
+    function addLine(who, text) {
+      const p = document.createElement("p");
+      const b = document.createElement("b");
+      b.textContent = who + ": ";
+      const span = document.createElement("span");
+      span.style.whiteSpace = "pre-wrap";
+      span.textContent = text;
+      p.append(b, span);
+      log.append(p);
+      return span;
+    }
+
+    document.getElementById("reset").onclick = () => {
+      messages.length = 0;
+      log.textContent = "";
+      status.textContent = "";
+    };
+
+    document.getElementById("form").onsubmit = async (e) => {
+      e.preventDefault();
+      const input = document.getElementById("input");
+      const content = input.value.trim();
+      if (!content) return;
+      input.value = "";
+
+      messages.push({ role: "user", content });
+      addLine("You", content);
+      const out = addLine("Assistant", "");
+      const t0 = performance.now();
+      status.textContent = "…";
+
+      try {
+        const res = await fetch(document.getElementById("endpoint").value, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: messages.slice(-12) }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          out.textContent = "[" + res.status + "] " + err.error;
+          messages.pop();
+          status.textContent = "";
+          return;
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let first = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!first) first = performance.now() - t0;
+          out.textContent += decoder.decode(value, { stream: true });
+        }
+        messages.push({ role: "assistant", content: out.textContent.slice(0, 600) });
+        status.textContent = "first chunk " + Math.round(first) + " ms, total " + Math.round(performance.now() - t0) + " ms";
+      } catch (err) {
+        out.textContent = "[network error] " + err.message;
+        messages.pop();
+        status.textContent = "";
+      }
+    };
+  </script>
+</body>
+</html>
