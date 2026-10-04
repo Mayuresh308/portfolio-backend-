@@ -155,6 +155,12 @@ Note: `vercel dev` starts a fresh function process per request, so the in-memory
 anything locally. With MongoDB configured, rate limits apply locally too. Local requests (including
 `pnpm eval`) count against your IP and are logged in the same database.
 
+**Running `vercel build` locally on Windows:** if the project is on a different drive from `%TEMP%`
+(e.g. `D:` vs `C:`), it fails with "TypeScript did not emit an output". With TypeScript 7, `@vercel/node`
+compiles in a temp folder, and across drives TypeScript writes `file:///` source-map paths that it can't
+match. Point the temp folder at the project's drive for that command, e.g. `TEMP=D:\tmp TMP=D:\tmp`.
+Vercel's own builds are unaffected.
+
 Quick checks:
 
 ```bash
