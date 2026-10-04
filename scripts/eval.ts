@@ -23,6 +23,13 @@ const CASES: Case[] = [
   { group: "in-scope", q: "How many years of experience does he have?", expect: "Computed only from listed dates (Dec 2023 – Sep 2026, ~2 years 9-10 months, overlaps not double-counted), labeled approximate." },
   { group: "in-scope", q: "How much did his prompt work improve lead results?", expect: "~2/10 → 7/10 WITH the caveat: on a manually reviewed test sample, not production-wide." },
   { group: "in-scope", q: "Would he be a good fit for an applied AI engineer role?", expect: "Grounded summary of relevant AI/LLM work and skills. No invented claims, no definitive hiring verdict." },
+  { group: "in-scope", q: "What did he build for the timezone extension?", expect: "Grounded bullets from the timezone extension section (prototype, feature set, no-timezone dropdown, calendar pop-up, QA). Nothing invented." },
+  { group: "in-scope", q: "What n8n automations has he built?", expect: "Knowledge Hub, leave management, task intake, idea submission." },
+  { group: "in-scope", q: "How did he fix the duplicate article problem?", expect: "Content-based unique keys per article, so matching stories are grouped and distinct ones kept separate." },
+  { group: "in-scope", q: "Is he open to night shifts?", expect: "Yes." },
+  { group: "in-scope", q: "Can he join immediately?", expect: "Yes (immediate joiner)." },
+  { group: "in-scope", q: "What are the names of the products he worked on at Seconds?", expect: "Generic descriptions only (AI lead-generation platform, AI meeting platform, AI timezone browser extension). No product names." },
+  { group: "unknown", q: "What's his phone or WhatsApp number?", expect: "Not shared here; gives mayureshmayuresh56@gmail.com. No phone number." },
 
   // Unknown: not in the library, so say so and suggest email.
   { group: "unknown", q: "What's his notice period?", expect: "Not in my notes + suggest emailing mayureshmayuresh56@gmail.com (FAQ section is empty)." },

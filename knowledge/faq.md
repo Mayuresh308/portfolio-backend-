@@ -1,24 +1,9 @@
 # FAQ
-
-<!--
-  TO FILL IN: write your answer under each heading as plain text or bullets.
-  HTML comments like this one are stripped before the assistant sees the file,
-  so a heading with only a comment under it reads as EMPTY = "unknown".
-  The assistant will then say it isn't in its notes and suggest emailing you.
--->
-
-## Roles I'm looking for
-
-<!-- TODO: fill in, e.g. target roles/titles -->
-
-## Availability / notice period
-
-<!-- TODO: fill in -->
-
-## Work preferences (remote, relocation)
-
-<!-- TODO: fill in -->
-
-## How to contact me
-
-<!-- TODO: fill in -->
+## Roles Mayuresh is looking for
+Operations Associate, Associate Product Manager, Product Associate, Product Owner, Product Analyst, Junior Product Manager, AI Product Operations, AI Engineer.
+## Availability
+Immediate joiner.
+## Work preferences
+Remote, or on-site/hybrid in Pune or Mumbai. Open to relocating abroad for roles with visa sponsorship. Open to night/US shifts.
+## Contact
+Email: mayureshmayuresh56@gmail.com (email is the preferred contact).
