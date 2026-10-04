@@ -18,8 +18,15 @@ export const LIMITS = {
   maxMessageIndex: 199,
 } as const;
 
-/** When the answer isn't in the library, replies start with exactly this (used to flag unanswered questions). */
-export const UNANSWERED_PREFIX = "That isn't in Mayuresh's notes";
+/**
+ * When nothing relevant is in the library, the model starts its reply with this marker. The server strips
+ * it before streaming, logs the question as unanswered, and sends X-Answered: false so the widget can offer
+ * an email button. Visitors never see it.
+ */
+export const NA_MARKER = "[[NA]]";
+
+/** Used if the model sends the marker and nothing else. */
+export const NA_FALLBACK = "Good question. Mayuresh hasn't shared that here yet, but he'd be happy to answer it directly.";
 
 /** Client-generated conversation id: short, URL-safe, random. */
 export const CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;

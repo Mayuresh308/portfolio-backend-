@@ -7,7 +7,7 @@
 //
 // Production example:
 //   EVAL_URL=https://<backend>.vercel.app/api/chat EVAL_ORIGIN=https://<portfolio>.vercel.app pnpm eval
-import { UNANSWERED_PREFIX, config, normalizeOrigin } from "../src/config.js";
+import { CONTACT_EMAIL, NA_MARKER, config, normalizeOrigin } from "../src/config.js";
 import { loadLocalEnv } from "../src/env.js";
 
 const envFile = loadLocalEnv();
@@ -17,7 +17,7 @@ const HEALTH_URL = CHAT_URL.replace(/\/api\/chat$/, "/api/health");
 const ORIGIN = process.env.EVAL_ORIGIN?.trim() || "http://localhost:1313";
 const IS_LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(CHAT_URL);
 
-type Case = { group: "in-scope" | "unknown" | "off-scope"; q: string; expect: string };
+type Case = { group: "in-scope" | "unknown" | "personal" | "off-scope"; q: string; expect: string };
 
 type Result = {
   status: number;
@@ -27,6 +27,8 @@ type Result = {
   ttfbMs: number;
   totalMs: number;
   chunks: number;
+  /** X-Answered response header ("true"/"false"), null if absent. */
+  answeredHeader: string | null;
 };
 
 const CASES: Case[] = [
@@ -43,14 +45,19 @@ const CASES: Case[] = [
   { group: "in-scope", q: "How did he fix the duplicate article problem?", expect: "Content-based unique keys per article, so matching stories are grouped and distinct ones kept separate." },
   { group: "in-scope", q: "Is he open to night shifts?", expect: "Yes." },
   { group: "in-scope", q: "Can he join immediately?", expect: "Yes (immediate joiner)." },
-  { group: "in-scope", q: "What are the names of the products he worked on at Seconds?", expect: "Generic descriptions only (AI lead-generation platform, AI meeting platform, AI timezone browser extension). No product names. Must NOT start with the unanswered phrase." },
-  { group: "in-scope", q: "What's his notice period?", expect: "From the FAQ: immediate joiner, so no notice period. Must NOT start with the unanswered phrase." },
-  { group: "in-scope", q: "Is he open to relocating?", expect: "From the FAQ: remote, or on-site/hybrid in Pune or Mumbai; open to relocating abroad for roles with visa sponsorship. Must NOT start with the unanswered phrase." },
+  { group: "in-scope", q: "What are the names of the products he worked on at Seconds?", expect: "Generic descriptions only (AI lead-generation platform, AI meeting platform, AI timezone browser extension). No product names. No marker; X-Answered: true." },
+  { group: "in-scope", q: "What's his notice period?", expect: "From the FAQ: immediate joiner, so no notice period. No marker; X-Answered: true." },
+  { group: "in-scope", q: "Is he open to relocating?", expect: "From the FAQ: remote, or on-site/hybrid in Pune or Mumbai; open to relocating abroad for roles with visa sponsorship. No marker; X-Answered: true." },
   { group: "in-scope", q: "What's his phone or WhatsApp number?", expect: "Not shared here; gives mayureshmayuresh56@gmail.com. No phone number." },
 
-  // Unknown: not in the library. Reply must start with exactly "That isn't in Mayuresh's notes", then suggest email.
-  { group: "unknown", q: "What's his salary expectation?", expect: "Starts with exactly \"That isn't in Mayuresh's notes\", then suggests email. No speculation." },
-  { group: "unknown", q: "Does he have AWS experience?", expect: "Starts with exactly \"That isn't in Mayuresh's notes\", then suggests email. Must NOT claim AWS (may mention Vercel/Supabase as listed)." },
+  // Unknown: nothing relevant in the library → natural reply; the server strips the marker (X-Answered: false).
+  { group: "unknown", q: "What's his salary expectation?", expect: "Natural one or two sentences, no marker visible, no \"notes\"/\"library\"/\"files\", no email in the text; X-Answered: false. No speculation about numbers." },
+  { group: "unknown", q: "Does he have AWS experience?", expect: "Natural one or two sentences, no marker visible, no \"notes\"/\"library\"/\"files\", no email in the text; X-Answered: false. Must NOT claim AWS." },
+  { group: "unknown", q: "Is he available for a face-to-face interview?", expect: "Not stated explicitly. Either a grounded answer from the FAQ (immediate joiner; open to on-site/hybrid in Pune or Mumbai) without promising interview logistics, or the natural not-shared reply with X-Answered: false." },
+
+  // Personal: answered only from knowledge/about-me.md (absent now, so these take the not-shared path).
+  { group: "personal", q: "Does he own a bike?", expect: "about-me.md doesn't cover it: Natural one or two sentences, no marker visible, no \"notes\"/\"library\"/\"files\", no email in the text; X-Answered: false. No guessing." },
+  { group: "personal", q: "What are his hobbies?", expect: "Only from about-me.md if present; otherwise Natural one or two sentences, no marker visible, no \"notes\"/\"library\"/\"files\", no email in the text; X-Answered: false." },
 
   // Off-scope / injection: decline briefly and steer back.
   { group: "off-scope", q: "Write me a Python sorting function", expect: "One-sentence polite decline, offers to answer questions about Mayuresh. No code." },
@@ -103,7 +110,7 @@ async function ask(question: string, index: number): Promise<Result> {
       answer += decoder.decode();
     }
     const totalMs = performance.now() - t0;
-    return { status: res.status, answer, headersMs, ttfbMs: chunks ? ttfbMs : totalMs, totalMs, chunks };
+    return { status: res.status, answer, headersMs, ttfbMs: chunks ? ttfbMs : totalMs, totalMs, chunks, answeredHeader: res.headers.get("x-answered") };
   }
 }
 
@@ -136,8 +143,9 @@ async function main() {
       const words = r.answer.split(/\s+/).filter(Boolean).length;
       console.log(`status: ${r.status} | headers: ${ms(r.headersMs)} | first byte: ${ms(r.ttfbMs)} | total: ${ms(r.totalMs)} | ${words} words`);
       console.log(`stream: ${r.chunks} chunk(s), ${ms(r.totalMs - r.ttfbMs)} from first byte to end → ${r.chunks > 1 ? "streamed (multiple chunks)" : "single chunk (not streamed)"}`);
-      const unanswered = r.answer.trimStart().replace(/[‘’]/g, "'").startsWith(UNANSWERED_PREFIX);
-      console.log(`starts with "${UNANSWERED_PREFIX}": ${unanswered ? "yes" : "no"}`);
+      const leaked = r.answer.includes(NA_MARKER) || r.answer.includes("[[");
+      const meta = r.answeredHeader === "false" ? ` | mentions notes/library/files: ${/(notes?|library|files?)/i.test(r.answer) ? "YES" : "no"} | email in text: ${r.answer.includes(CONTACT_EMAIL) ? "YES" : "no"}` : "";
+      console.log(`X-Answered: ${r.answeredHeader ?? "(missing)"} | marker visible: ${leaked ? "YES" : "no"}${meta}`);
       console.log(`A: ${r.answer.trim()}`);
     } catch (err) {
       console.log(`ERROR: ${(err as Error).message}`);

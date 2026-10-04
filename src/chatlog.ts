@@ -2,22 +2,18 @@
 // and swallowed, and nothing happens when MONGODB_URI is unset.
 // Stored fields are deliberately minimal: no IP, IP hash, user agent, or other identifiers
 // besides the client's random conversationId.
-import { UNANSWERED_PREFIX } from "./config.js";
 import { COLLECTIONS, MongoBackoffError, getDb, type ChatLogDoc, type FeedbackDoc } from "./db.js";
 import { describeError, logWarn } from "./http.js";
 
 const ANSWER_LOG_CHARS = 500;
-
-/** True when the reply opens with the fixed "not in the notes" phrase (straight or curly apostrophe). */
-export function isUnanswered(answer: string): boolean {
-  return answer.trimStart().replace(/[‘’]/g, "'").startsWith(UNANSWERED_PREFIX);
-}
 
 export async function logChat(entry: {
   conversationId?: string;
   messageIndex: number;
   question: string;
   answer: string;
+  /** false when the model signalled that nothing relevant is in the library. */
+  answered: boolean;
   model: string;
 }): Promise<void> {
   try {
@@ -29,7 +25,7 @@ export async function logChat(entry: {
       messageIndex: entry.messageIndex,
       question: entry.question,
       answer: entry.answer.slice(0, ANSWER_LOG_CHARS),
-      answered: !isUnanswered(entry.answer),
+      answered: entry.answered,
       model: entry.model,
     });
   } catch (err) {

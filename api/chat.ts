@@ -1,8 +1,9 @@
 import { waitUntil } from "@vercel/functions";
 import { startAnswer } from "../src/answer.js";
 import { logChat } from "../src/chatlog.js";
-import { LIMITS, MESSAGES, config } from "../src/config.js";
+import { LIMITS, MESSAGES, NA_FALLBACK, config } from "../src/config.js";
 import { loadLocalEnv } from "../src/env.js";
+import { createMarkerFilter, readPastMarker } from "../src/marker.js";
 import { checkCors, preflight } from "../src/cors.js";
 import { clientIp, describeError, errorResponse, log, logWarn, readBodyCapped } from "../src/http.js";
 import { buildSystemPrompt } from "../src/prompt.js";
@@ -21,6 +22,8 @@ if (config.isLocalDev) {
     rateLimitSalt: Boolean(config.rateLimitSalt),
   });
 }
+
+const INTERRUPTED_NOTE = "\n\n[The answer was interrupted — please try again.]";
 
 export function OPTIONS(request: Request): Response {
   return preflight(request);
@@ -76,43 +79,62 @@ async function handleChat(request: Request): Promise<Response> {
   }
 
   const { provider, model, first, rest } = answer;
+
+  // Read ahead until the "[[NA]]" marker is confirmed or ruled out, so it can be stripped and reported
+  // in X-Answered before any text is sent.
+  const check = await readPastMarker(first, rest);
+  if (check.error) logWarn("chat_stream_error", { provider, model, ...describeError(check.error) });
+  const filter = createMarkerFilter();
   const encoder = new TextEncoder();
-  let chars = 0;
-  let fullAnswer = first;
+  const modelProduced = first.length > 0;
+  let visible = "";
+  let finished = false;
+
+  const emit = (controller: ReadableStreamDefaultController<Uint8Array>, text: string) => {
+    if (!text) return;
+    visible += text;
+    controller.enqueue(encoder.encode(text));
+  };
+
+  const finish = (controller: ReadableStreamDefaultController<Uint8Array>, interrupted: boolean) => {
+    if (finished) return;
+    finished = true;
+    emit(controller, filter.flush());
+    if (!visible.trim()) emit(controller, check.answered ? MESSAGES.emptyAnswer : NA_FALLBACK);
+    if (interrupted) controller.enqueue(encoder.encode(INTERRUPTED_NOTE));
+    controller.close();
+
+    const answered = check.answered && !filter.seenLater;
+    log("chat_ok", { provider, model, turns: messages.length, outChars: visible.length, answered, ms: Date.now() - started });
+    // Only real, fully streamed answers are logged; after the response, never blocking it.
+    if (modelProduced && !interrupted) {
+      waitUntil(
+        logChat({
+          conversationId,
+          messageIndex,
+          question: messages[messages.length - 1].content,
+          answer: visible,
+          answered,
+          model,
+        }),
+      );
+    }
+  };
 
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      const text = first || MESSAGES.emptyAnswer;
-      chars += text.length;
-      controller.enqueue(encoder.encode(text));
+      emit(controller, filter.push(check.head));
+      if (check.ended) finish(controller, Boolean(check.error));
     },
     async pull(controller) {
+      if (finished) return;
       try {
         const { done, value } = await rest.next();
-        if (done) {
-          controller.close();
-          log("chat_ok", { provider, model, turns: messages.length, outChars: chars, ms: Date.now() - started });
-          // Only real, fully streamed answers are logged; after the response, never blocking it.
-          if (fullAnswer) {
-            waitUntil(
-              logChat({
-                conversationId,
-                messageIndex,
-                question: messages[messages.length - 1].content,
-                answer: fullAnswer,
-                model,
-              }),
-            );
-          }
-          return;
-        }
-        chars += value.length;
-        fullAnswer += value;
-        controller.enqueue(encoder.encode(value));
+        if (done) finish(controller, false);
+        else emit(controller, filter.push(value));
       } catch (err) {
         logWarn("chat_stream_error", { provider, model, ...describeError(err) });
-        controller.enqueue(encoder.encode("\n\n[The answer was interrupted — please try again.]"));
-        controller.close();
+        finish(controller, true);
       }
     },
     async cancel() {
@@ -127,6 +149,7 @@ async function handleChat(request: Request): Promise<Response> {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
+      "X-Answered": String(check.answered),
     },
   });
 }

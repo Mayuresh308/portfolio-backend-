@@ -23,7 +23,8 @@ Rules for `/api/chat`:
 - If Gemini is rate-limited and the fallback is also rate-limited (or not configured), you get a 429 with the message "Lots of questions right now — please try again in a minute or email …".
 - Other provider failures return a 503 with a generic message. Stack traces and provider error bodies are never returned.
 - Output is capped at about 400 tokens.
-- When the answer isn't in the notes, the reply starts with exactly "That isn't in Mayuresh's notes". This is how logs flag unanswered questions.
+- When nothing relevant is in `knowledge/`, the model starts its reply with the marker `[[NA]]`, then a short, natural "he hasn't shared that here" sentence (no email; the widget shows a contact button). The server reads ahead until the marker is confirmed or ruled out, strips it (visitors never see it), sends the response header `X-Answered: false` (otherwise `true`; exposed via CORS `Access-Control-Expose-Headers`), and logs the question with `answered: false`.
+- Light personal questions (hobbies, interests) are answered only from `knowledge/about-me.md`, if it exists; anything it doesn't cover takes the `[[NA]]` path.
 
 `/api/feedback` uses the same CORS and rate limit. It is strictly validated (exactly those three fields, body at most 1 KB), and is stored without blocking the response.
 
@@ -190,9 +191,9 @@ With `pnpm serve` running:
 pnpm eval
 ```
 
-This sends 22 questions (in-scope, unknown, off-scope/injection) and prints question → answer → latency,
-whether the reply starts with the "not in the notes" phrase, and the expected behavior, so you can mark
-pass/fail yourself. It waits out the 10/min rate limit automatically. Each run uses 22 of the 60/day
+This sends 25 questions (in-scope, unknown, personal, off-scope/injection) and prints question → answer → latency,
+the `X-Answered` header (for unanswered replies, also whether the marker leaked or the text mentions notes/files or the email), and the expected behavior, so you can mark
+pass/fail yourself. It waits out the 10/min rate limit automatically. Each run uses 25 of the 60/day
 quota for your IP, and its questions are logged with `conversationId`s starting with `eval`, which
 `pnpm questions` hides unless you pass `--include-eval`.
 
