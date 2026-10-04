@@ -1,4 +1,7 @@
 // Central place for env-driven settings and fixed limits.
+import { isLocalDevEnv, loadLocalEnv } from "./env.js";
+
+loadLocalEnv();
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 
@@ -24,6 +27,20 @@ function env(name: string): string | undefined {
   return value ? value : undefined;
 }
 
+/**
+ * Canonical form for comparing origins: lowercase scheme/host, no trailing slash, no default port.
+ * Tolerates stray quotes and whitespace. "null" (file:// pages) is kept as-is.
+ */
+export function normalizeOrigin(raw: string): string {
+  const value = raw.trim().replace(/^["']+|["']+$/g, "").trim();
+  if (!value || value.toLowerCase() === "null") return value.toLowerCase();
+  try {
+    return new URL(value).origin;
+  } catch {
+    return value.replace(/\/+$/, "").toLowerCase();
+  }
+}
+
 export const config = {
   get geminiApiKey() {
     return env("GEMINI_API_KEY");
@@ -43,7 +60,7 @@ export const config = {
   get allowedOrigins(): string[] {
     return (env("ALLOWED_ORIGINS") ?? "")
       .split(",")
-      .map((o) => o.trim().replace(/\/+$/, ""))
+      .map(normalizeOrigin)
       .filter(Boolean);
   },
   get upstashUrl() {
@@ -54,7 +71,6 @@ export const config = {
   },
   /** True for `vercel dev` (VERCEL_ENV=development) or plain local runs. */
   get isLocalDev() {
-    const v = env("VERCEL_ENV");
-    return v === undefined || v === "development";
+    return isLocalDevEnv();
   },
 };

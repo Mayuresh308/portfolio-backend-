@@ -71,13 +71,23 @@ pnpm typecheck
 ## Local development (`vercel dev`)
 
 ```bash
-pnpm add -g vercel     # or: npm i -g vercel  (skip if `vercel --version` works)
-vercel login
-vercel link            # first time only: create/link a Vercel project
-pnpm dev               # = vercel dev, serves http://localhost:3000
+pnpm install           # the Vercel CLI is a devDependency
+pnpm exec vercel login
+pnpm exec vercel link  # first time only: create/link a Vercel project
+pnpm serve             # = vercel dev, serves http://localhost:3000
 ```
 
-`vercel dev` reads `.env.local`. Restart it after changing env vars or knowledge files.
+**How env vars reach the function locally:** `vercel dev` (CLI 62.x) only reads `.env`. Without one, it
+injects the linked project's cloud *Development* env vars, and it never reads `.env.local`. So the app
+loads `.env.local` itself in local dev (`src/env.ts`), and those values override whatever `vercel dev`
+injected. `pnpm eval` and `pnpm models` use the same loader. On deployments (`VERCEL_ENV` is
+production/preview) the loader does nothing, and only the Vercel dashboard env vars are used.
+
+In local dev, each function cold start logs a `dev_startup` line with the env file used, the parsed
+`ALLOWED_ORIGINS`, and the model id (never keys). Restart `vercel dev` after changing knowledge files.
+
+Note: `vercel dev` starts a fresh function process per request, so the in-memory rate limiter does not
+limit anything locally. Configure Upstash to test rate limiting.
 
 Quick checks:
 
@@ -99,7 +109,7 @@ curl -N -X POST http://localhost:3000/api/chat \
 
 ### Eval
 
-With `vercel dev` running:
+With `pnpm serve` running:
 
 ```bash
 pnpm eval

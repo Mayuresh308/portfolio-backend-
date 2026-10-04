@@ -1,12 +1,10 @@
 // Lists Gemini models available to GEMINI_API_KEY that support generateContent.
 // Usage: pnpm models   (reads .env.local if present)
 import { GoogleGenAI } from "@google/genai";
+import { DEFAULT_GEMINI_MODEL } from "../src/config.js";
+import { loadLocalEnv } from "../src/env.js";
 
-try {
-  process.loadEnvFile(".env.local");
-} catch {
-  // No .env.local; fall back to the shell environment.
-}
+console.log(`env file: ${loadLocalEnv() ?? "(none; using shell environment)"}`);
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
@@ -26,4 +24,4 @@ for (const r of rows) console.log(`${r.name.padEnd(45)} ${r.display}`);
 
 const flash = rows.filter((r) => /flash/.test(r.name) && !/(preview|exp|lite|image|tts|live|audio)/.test(r.name));
 console.log(`\nStable Flash candidates: ${flash.map((r) => r.name).join(", ") || "(none found)"}`);
-console.log(`Current GEMINI_MODEL: ${process.env.GEMINI_MODEL || "(unset, default gemini-3.8-flash)"}`);
+console.log(`Current GEMINI_MODEL: ${process.env.GEMINI_MODEL?.trim() || `(unset, default ${DEFAULT_GEMINI_MODEL})`}`);

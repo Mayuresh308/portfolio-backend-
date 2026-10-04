@@ -1,4 +1,4 @@
-import { config } from "./config.js";
+import { config, normalizeOrigin } from "./config.js";
 
 export type CorsResult =
   | { ok: true; headers: Record<string, string> }
@@ -15,7 +15,7 @@ export function checkCors(request: Request): CorsResult {
     return config.isLocalDev ? { ok: true, headers: { Vary: "Origin" } } : { ok: false };
   }
 
-  if (!config.allowedOrigins.includes(origin.replace(/\/+$/, ""))) {
+  if (!config.allowedOrigins.includes(normalizeOrigin(origin))) {
     return { ok: false };
   }
 

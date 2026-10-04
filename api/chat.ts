@@ -1,10 +1,22 @@
 import { startAnswer } from "../src/answer.js";
-import { LIMITS, MESSAGES } from "../src/config.js";
+import { LIMITS, MESSAGES, config } from "../src/config.js";
+import { loadLocalEnv } from "../src/env.js";
 import { checkCors, preflight } from "../src/cors.js";
 import { clientIp, describeError, errorResponse, log, logWarn, readBodyCapped } from "../src/http.js";
 import { buildSystemPrompt } from "../src/prompt.js";
 import { checkRateLimit } from "../src/ratelimit.js";
 import { validateChatBody } from "../src/validate.js";
+
+// Local dev only: show what config the function actually sees (never keys).
+if (config.isLocalDev) {
+  log("dev_startup", {
+    envFile: loadLocalEnv() ?? "(none; using env injected by vercel dev)",
+    allowedOrigins: config.allowedOrigins,
+    model: config.geminiModel,
+    geminiKeySet: Boolean(config.geminiApiKey),
+    groqFallback: Boolean(config.groqApiKey && config.groqModel),
+  });
+}
 
 export function OPTIONS(request: Request): Response {
   return preflight(request);

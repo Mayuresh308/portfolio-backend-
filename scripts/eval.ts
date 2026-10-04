@@ -4,6 +4,10 @@
 // Usage: start `vercel dev`, then `pnpm eval`
 //   EVAL_BASE_URL  (default http://localhost:3000)
 //   EVAL_ORIGIN    (default http://localhost:1313, must be in ALLOWED_ORIGINS)
+import { config, normalizeOrigin } from "../src/config.js";
+import { loadLocalEnv } from "../src/env.js";
+
+const envFile = loadLocalEnv();
 
 const BASE_URL = (process.env.EVAL_BASE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
 const ORIGIN = process.env.EVAL_ORIGIN ?? "http://localhost:1313";
@@ -58,7 +62,12 @@ async function ask(question: string): Promise<{ status: number; answer: string; 
 }
 
 async function main() {
-  console.log(`Eval against ${BASE_URL}/api/chat (Origin: ${ORIGIN})\n`);
+  console.log(`Eval against ${BASE_URL}/api/chat (Origin: ${ORIGIN})`);
+  console.log(`env file: ${envFile ?? "(none)"} | ALLOWED_ORIGINS parsed: ${JSON.stringify(config.allowedOrigins)}`);
+  if (envFile && !config.allowedOrigins.includes(normalizeOrigin(ORIGIN))) {
+    console.warn(`WARNING: ${ORIGIN} is not in ALLOWED_ORIGINS in ${envFile}; expect 403s.`);
+  }
+  console.log();
   try {
     const health = await fetch(`${BASE_URL}/api/health`);
     console.log(`health: ${health.status} ${await health.text()}\n`);

@@ -1,5 +1,6 @@
-import { ApiError, GoogleGenAI, ThinkingLevel, type Content } from "@google/genai";
+import { ApiError, FinishReason, GoogleGenAI, ThinkingLevel, type Content } from "@google/genai";
 import { config } from "../config.js";
+import { logWarn } from "../http.js";
 import { ProviderError, type StreamParams } from "./types.js";
 
 let client: GoogleGenAI | undefined;
@@ -29,14 +30,17 @@ export async function* streamGemini({ systemPrompt, messages, maxOutputTokens, s
         maxOutputTokens,
         temperature: 0.2,
         abortSignal: signal,
-        // On Gemini 3.x, thinking tokens count against maxOutputTokens; keep thinking minimal
-        // so the ~400-token budget goes to the answer.
-        ...(model.startsWith("gemini-3") ? { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } } : {}),
+        // On Gemini 3.x, thinking tokens count against maxOutputTokens and can't be turned off;
+        // LOW is the lowest level gemini-3.8-flash accepts (MINIMAL is rejected with a 400).
+        ...(model.startsWith("gemini-3") ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {}),
       },
     });
     for await (const chunk of stream) {
       const text = chunk.text;
       if (text) yield text;
+      if (chunk.candidates?.[0]?.finishReason === FinishReason.MAX_TOKENS) {
+        logWarn("answer_truncated", { provider: "gemini", model, maxOutputTokens, usage: chunk.usageMetadata });
+      }
     }
   } catch (err) {
     if (err instanceof ApiError) throw new ProviderError("gemini", err.status, err.message);

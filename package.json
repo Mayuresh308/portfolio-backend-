@@ -7,10 +7,10 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "vercel dev",
     "typecheck": "tsc --noEmit",
     "eval": "tsx scripts/eval.ts",
-    "models": "tsx scripts/list-models.ts"
+    "models": "tsx scripts/list-models.ts",
+    "serve": "vercel dev"
   },
   "dependencies": {
     "@google/genai": "^2.27.0",
@@ -20,7 +20,8 @@
   "devDependencies": {
     "@types/node": "20",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vercel": "^62.2.0"
   },
   "packageManager": "pnpm@10.8.0"
 }
