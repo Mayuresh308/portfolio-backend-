@@ -122,6 +122,7 @@ pnpm questions --stats        # answered %, top unanswered questions
 pnpm questions --unanswered   # what the notes couldn't answer
 pnpm questions --feedback     # thumbs-down answers with their question
 pnpm questions --csv logs.csv # optional: export for a spreadsheet
+# add --include-eval to any of these to include `pnpm eval` runs (hidden by default)
 ```
 
 1. For each frequent **unanswered** question that you're happy to answer publicly, add the fact to
@@ -186,7 +187,8 @@ pnpm eval
 This sends 22 questions (in-scope, unknown, off-scope/injection) and prints question → answer → latency,
 whether the reply starts with the "not in the notes" phrase, and the expected behavior, so you can mark
 pass/fail yourself. It waits out the 10/min rate limit automatically. Each run uses 22 of the 60/day
-quota for your IP, and its questions are logged with `conversationId`s starting with `eval`.
+quota for your IP, and its questions are logged with `conversationId`s starting with `eval`, which
+`pnpm questions` hides unless you pass `--include-eval`.
 
 To run it against a deployment, set `EVAL_URL` (the full chat URL) and `EVAL_ORIGIN` (an origin the
 deployment allows; default `http://localhost:1313`):

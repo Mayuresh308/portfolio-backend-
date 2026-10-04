@@ -5,6 +5,8 @@
 //   pnpm questions --feedback      thumbs-down answers with their question
 //   pnpm questions --csv <file>    export all logs to CSV
 //   pnpm questions --stats         totals, answered %, top 10 unanswered questions
+//
+// Eval runs (conversationIds starting with "eval") are excluded unless --include-eval is passed.
 import { writeFileSync } from "node:fs";
 import { config } from "../src/config.js";
 import { COLLECTIONS, closeDb, getDb, type ChatLogDoc, type FeedbackDoc } from "../src/db.js";
@@ -14,6 +16,9 @@ loadLocalEnv();
 
 const args = process.argv.slice(2);
 const has = (flag: string) => args.includes(flag);
+
+/** Hides `pnpm eval` traffic. $not also matches documents without a conversationId. */
+const scope = has("--include-eval") ? {} : { conversationId: { $not: /^eval/ } };
 
 function fmtDate(d: Date): string {
   return d.toISOString().slice(0, 16).replace("T", " ");
@@ -46,12 +51,13 @@ async function main() {
   if (!db) return;
   const logs = db.collection<ChatLogDoc>(COLLECTIONS.chatLogs);
   const feedback = db.collection<FeedbackDoc>(COLLECTIONS.feedback);
-  console.log(`Database: ${config.mongodbDb}\n`);
+  const note = has("--include-eval") ? "" : " (excluding eval runs; --include-eval to show)";
+  console.log(`Database: ${config.mongodbDb}${note}\n`);
 
   if (has("--csv")) {
     const file = args[args.indexOf("--csv") + 1];
     if (!file || file.startsWith("--")) throw new Error("Usage: pnpm questions --csv <file>");
-    const rows = await logs.find({}, { sort: { ts: -1 } }).toArray();
+    const rows = await logs.find(scope, { sort: { ts: -1 } }).toArray();
     const header = ["ts", "answered", "question", "answer", "model", "conversationId", "messageIndex"];
     const lines = [header.join(","), ...rows.map((r) => header.map((h) => csvCell(r[h as keyof ChatLogDoc])).join(","))];
     writeFileSync(file, "﻿" + lines.join("\r\n") + "\r\n", "utf8");
@@ -61,11 +67,11 @@ async function main() {
 
   if (has("--stats")) {
     const [total, answered, up, down, oldest] = await Promise.all([
-      logs.countDocuments(),
-      logs.countDocuments({ answered: true }),
-      feedback.countDocuments({ rating: "up" }),
-      feedback.countDocuments({ rating: "down" }),
-      logs.find({}, { sort: { ts: 1 }, limit: 1, projection: { ts: 1 } }).next(),
+      logs.countDocuments(scope),
+      logs.countDocuments({ ...scope, answered: true }),
+      feedback.countDocuments({ ...scope, rating: "up" }),
+      feedback.countDocuments({ ...scope, rating: "down" }),
+      logs.find(scope, { sort: { ts: 1 }, limit: 1, projection: { ts: 1 } }).next(),
     ]);
     const pct = total ? ((answered / total) * 100).toFixed(1) : "0.0";
     console.log(`Questions logged:  ${total}${oldest ? ` (since ${fmtDate(oldest.ts)} UTC)` : ""}`);
@@ -75,7 +81,7 @@ async function main() {
 
     const top = await logs
       .aggregate<{ _id: string; count: number; last: Date }>([
-        { $match: { answered: false } },
+        { $match: { ...scope, answered: false } },
         { $group: { _id: normalizeExpr, count: { $sum: 1 }, last: { $max: "$ts" } } },
         { $sort: { count: -1, last: -1 } },
         { $limit: 10 },
@@ -90,7 +96,7 @@ async function main() {
   if (has("--feedback")) {
     const rows = await feedback
       .aggregate<FeedbackDoc & { log?: ChatLogDoc }>([
-        { $match: { rating: "down" } },
+        { $match: { ...scope, rating: "down" } },
         { $sort: { ts: -1 } },
         { $limit: 50 },
         {
@@ -118,7 +124,7 @@ async function main() {
     return;
   }
 
-  const filter = has("--unanswered") ? { answered: false } : {};
+  const filter = has("--unanswered") ? { ...scope, answered: false } : scope;
   const rows = await logs.find(filter, { sort: { ts: -1 }, limit: 50 }).toArray();
   console.log(`${has("--unanswered") ? "Unanswered questions" : "Questions"} (latest ${rows.length}, UTC):\n`);
   console.log(`${"Date".padEnd(16)}  ✓/✗  Question`);
