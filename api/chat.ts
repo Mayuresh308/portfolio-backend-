@@ -1,4 +1,6 @@
+import { waitUntil } from "@vercel/functions";
 import { startAnswer } from "../src/answer.js";
+import { logChat } from "../src/chatlog.js";
 import { LIMITS, MESSAGES, config } from "../src/config.js";
 import { loadLocalEnv } from "../src/env.js";
 import { checkCors, preflight } from "../src/cors.js";
@@ -15,6 +17,8 @@ if (config.isLocalDev) {
     model: config.geminiModel,
     geminiKeySet: Boolean(config.geminiApiKey),
     groqFallback: Boolean(config.groqApiKey && config.groqModel),
+    mongodb: Boolean(config.mongodbUri),
+    rateLimitSalt: Boolean(config.rateLimitSalt),
   });
 }
 
@@ -50,7 +54,9 @@ async function handleChat(request: Request): Promise<Response> {
 
   const result = validateChatBody(raw);
   if (!result.ok) return errorResponse(result.error, 400, headers);
-  const { messages } = result;
+  const { messages, conversationId } = result;
+  // Position of this reply in the client's conversation (lets feedback be joined to the log).
+  const messageIndex = result.messageIndex ?? messages.length;
 
   let systemPrompt: string;
   try {
@@ -72,6 +78,7 @@ async function handleChat(request: Request): Promise<Response> {
   const { provider, model, first, rest } = answer;
   const encoder = new TextEncoder();
   let chars = 0;
+  let fullAnswer = first;
 
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -85,9 +92,22 @@ async function handleChat(request: Request): Promise<Response> {
         if (done) {
           controller.close();
           log("chat_ok", { provider, model, turns: messages.length, outChars: chars, ms: Date.now() - started });
+          // Only real, fully streamed answers are logged; after the response, never blocking it.
+          if (fullAnswer) {
+            waitUntil(
+              logChat({
+                conversationId,
+                messageIndex,
+                question: messages[messages.length - 1].content,
+                answer: fullAnswer,
+                model,
+              }),
+            );
+          }
           return;
         }
         chars += value.length;
+        fullAnswer += value;
         controller.enqueue(encoder.encode(value));
       } catch (err) {
         logWarn("chat_stream_error", { provider, model, ...describeError(err) });

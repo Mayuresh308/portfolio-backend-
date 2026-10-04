@@ -1,63 +1,73 @@
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
+import { createHash } from "node:crypto";
 import { config } from "./config.js";
+import { COLLECTIONS, MongoBackoffError, getDb, markMongoDown, type RateLimitDoc } from "./db.js";
 import { describeError, log, logWarn } from "./http.js";
 
 const PER_MINUTE = 10;
 const PER_DAY = 60;
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
+/** Keep counters a little past their window so TTL cleanup never races the window end. */
+const TTL_GRACE_MS = 5 * MINUTE_MS;
 
 export type LimitResult = { allowed: true } | { allowed: false; retryAfterSeconds: number };
 
-interface Limiter {
-  check(ip: string): Promise<LimitResult>;
+function denied(windowEndMs: number, now: number): LimitResult {
+  return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((windowEndMs - now) / 1000)) };
 }
 
-class UpstashLimiter implements Limiter {
-  private minute: Ratelimit;
-  private day: Ratelimit;
+/**
+ * Fixed-window counters in MongoDB ("rate_limits"), keyed by a salted SHA-256 of the IP.
+ * The raw IP is never stored.
+ */
+async function checkMongo(ip: string, salt: string): Promise<LimitResult | null> {
+  const db = await getDb();
+  if (!db) return null;
 
-  constructor(url: string, token: string) {
-    const redis = new Redis({ url, token });
-    this.minute = new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(PER_MINUTE, "1 m"),
-      prefix: "chat:rl:min",
-    });
-    this.day = new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(PER_DAY, "1 d"),
-      prefix: "chat:rl:day",
-    });
-  }
+  const ipHash = createHash("sha256").update(salt).update("\0").update(ip).digest("hex");
+  const now = Date.now();
+  const minute = Math.floor(now / MINUTE_MS);
+  const day = Math.floor(now / DAY_MS);
+  const minuteEnd = (minute + 1) * MINUTE_MS;
+  const dayEnd = (day + 1) * DAY_MS;
+  const counters = db.collection<RateLimitDoc>(COLLECTIONS.rateLimits);
 
-  async check(ip: string): Promise<LimitResult> {
-    const [minute, day] = await Promise.all([this.minute.limit(ip), this.day.limit(ip)]);
-    for (const r of [minute, day]) {
-      if (!r.success) {
-        return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((r.reset - Date.now()) / 1000)) };
-      }
+  const bump = async (id: string, windowEnd: number): Promise<number> => {
+    const update = () =>
+      counters.findOneAndUpdate(
+        { _id: id },
+        { $inc: { count: 1 }, $setOnInsert: { expiresAt: new Date(windowEnd + TTL_GRACE_MS) } },
+        { upsert: true, returnDocument: "after", projection: { count: 1 } },
+      );
+    try {
+      return (await update())?.count ?? 1;
+    } catch (err) {
+      // Two concurrent upserts of a new window can collide on _id; the retry finds the document.
+      if ((err as { code?: number }).code === 11000) return (await update())?.count ?? 1;
+      throw err;
     }
-    return { allowed: true };
-  }
+  };
+
+  const [perMinute, perDay] = await Promise.all([
+    bump(`${ipHash}:m:${minute}`, minuteEnd),
+    bump(`${ipHash}:d:${day}`, dayEnd),
+  ]);
+  if (perMinute > PER_MINUTE) return denied(minuteEnd, now);
+  if (perDay > PER_DAY) return denied(dayEnd, now);
+  return { allowed: true };
 }
 
 /** Best-effort fallback: state lives in this function instance only and resets on cold start. */
-class MemoryLimiter implements Limiter {
+class MemoryLimiter {
   private hits = new Map<string, number[]>();
 
-  async check(ip: string): Promise<LimitResult> {
+  check(ip: string): LimitResult {
     const now = Date.now();
     const recent = (this.hits.get(ip) ?? []).filter((t) => now - t < DAY_MS);
     const lastMinute = recent.filter((t) => now - t < MINUTE_MS);
 
-    if (lastMinute.length >= PER_MINUTE) {
-      return { allowed: false, retryAfterSeconds: Math.ceil((lastMinute[0] + MINUTE_MS - now) / 1000) };
-    }
-    if (recent.length >= PER_DAY) {
-      return { allowed: false, retryAfterSeconds: Math.ceil((recent[0] + DAY_MS - now) / 1000) };
-    }
+    if (lastMinute.length >= PER_MINUTE) return denied(lastMinute[0] + MINUTE_MS, now);
+    if (recent.length >= PER_DAY) return denied(recent[0] + DAY_MS, now);
 
     recent.push(now);
     this.hits.set(ip, recent);
@@ -72,30 +82,35 @@ class MemoryLimiter implements Limiter {
   }
 }
 
-let limiter: Limiter | undefined;
+const memory = new MemoryLimiter();
+let announced = false;
 
-function getLimiter(): Limiter {
-  if (limiter) return limiter;
-  const { upstashUrl, upstashToken } = config;
-  if (upstashUrl && upstashToken) {
-    limiter = new UpstashLimiter(upstashUrl, upstashToken);
-    log("ratelimit_init", { backend: "upstash" });
-  } else {
-    limiter = new MemoryLimiter();
-    logWarn("ratelimit_init", {
-      backend: "memory",
-      note: "UPSTASH_REDIS_REST_URL/TOKEN not set; rate limiting is per-instance only and resets on cold start.",
-    });
-  }
-  return limiter;
+function announce(backend: "mongodb" | "memory", reason?: string) {
+  if (announced) return;
+  announced = true;
+  if (backend === "mongodb") log("ratelimit_init", { backend });
+  else logWarn("ratelimit_init", { backend, note: `${reason} Rate limiting is per-instance only and resets on cold start.` });
 }
 
 export async function checkRateLimit(ip: string): Promise<LimitResult> {
-  try {
-    return await getLimiter().check(ip);
-  } catch (err) {
-    // If Redis is down, don't take the chat down with it.
-    logWarn("ratelimit_error", describeError(err));
-    return { allowed: true };
+  const salt = config.rateLimitSalt;
+  if (!config.mongodbUri || !salt) {
+    announce("memory", !config.mongodbUri ? "MONGODB_URI not set." : "RATE_LIMIT_SALT not set, so IPs can't be hashed safely.");
+    return memory.check(ip);
   }
+
+  try {
+    const result = await checkMongo(ip, salt);
+    if (result) {
+      announce("mongodb");
+      return result;
+    }
+  } catch (err) {
+    // Never block the chat because the database is down: fall back to the in-memory limiter.
+    if (!(err instanceof MongoBackoffError)) {
+      logWarn("ratelimit_mongo_error", describeError(err));
+      markMongoDown();
+    }
+  }
+  return memory.check(ip);
 }

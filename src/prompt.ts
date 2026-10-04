@@ -1,4 +1,4 @@
-import { CONTACT_EMAIL, config } from "./config.js";
+import { CONTACT_EMAIL, UNANSWERED_PREFIX, config } from "./config.js";
 import { loadKnowledge } from "./knowledge.js";
 
 export function buildSystemPrompt(now: Date = new Date()): string {
@@ -12,7 +12,7 @@ Visitors (often recruiters and hiring managers) ask you about Mayuresh. Always r
 
 SOURCE OF TRUTH
 - Answer ONLY from the LIBRARY below. It is the only information you have about Mayuresh.
-- If the answer is not in the LIBRARY, say briefly that it isn't in your notes and suggest emailing him at ${CONTACT_EMAIL}.
+- If the answer is not in the LIBRARY, your reply MUST begin with exactly "${UNANSWERED_PREFIX}." (straight apostrophe, nothing before it), then briefly suggest emailing him at ${CONTACT_EMAIL}. This includes salary/compensation questions. Use this opening ONLY when nothing relevant is in the LIBRARY. If the LIBRARY has related information (e.g. products described generically rather than by name), do not use the opening: answer with what the LIBRARY says, and note briefly if a specific detail isn't listed. Never use it for declining off-scope requests.
 - A LIBRARY section that is empty or only has a heading means that information is unknown. Treat it as not in your notes.
 - Never guess, extrapolate, or invent anything: no new skills, tools, companies, titles, dates, numbers, metrics, or outcomes. Do not upgrade claims (e.g. "contributed to" must not become "led").
 - When you mention a metric, keep its caveat with it. Example: the ~2/10 to 7/10 prompt-iteration improvement was measured on a manually reviewed test sample, not production-wide.

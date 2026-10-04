@@ -13,7 +13,16 @@ export const LIMITS = {
   maxMessageChars: 600,
   maxTotalChars: 4000,
   maxOutputTokens: 400,
+  maxFeedbackBytes: 1024,
+  /** Highest message position the client may reference (its stored history is capped well below this). */
+  maxMessageIndex: 199,
 } as const;
+
+/** When the answer isn't in the library, replies start with exactly this (used to flag unanswered questions). */
+export const UNANSWERED_PREFIX = "That isn't in Mayuresh's notes";
+
+/** Client-generated conversation id: short, URL-safe, random. */
+export const CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
 export const MESSAGES = {
   providerBusy: `Lots of questions right now — please try again in a minute or email ${CONTACT_EMAIL}.`,
@@ -63,11 +72,19 @@ export const config = {
       .map(normalizeOrigin)
       .filter(Boolean);
   },
-  get upstashUrl() {
-    return env("UPSTASH_REDIS_REST_URL");
+  get mongodbUri() {
+    return env("MONGODB_URI");
   },
-  get upstashToken() {
-    return env("UPSTASH_REDIS_REST_TOKEN");
+  get mongodbDb() {
+    return env("MONGODB_DB") ?? "portfolio_chat";
+  },
+  /** Local dev only: DNS servers for mongodb+srv lookups when the system resolver refuses SRV queries. */
+  get mongodbDnsServers(): string[] {
+    return (env("MONGODB_DNS_SERVERS") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  },
+  /** Secret salt for hashing IPs in rate-limit keys. Without it, the MongoDB limiter is not used. */
+  get rateLimitSalt() {
+    return env("RATE_LIMIT_SALT");
   },
   /** True for `vercel dev` (VERCEL_ENV=development) or plain local runs. */
   get isLocalDev() {

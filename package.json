@@ -10,12 +10,13 @@
     "typecheck": "tsc --noEmit",
     "eval": "tsx scripts/eval.ts",
     "models": "tsx scripts/list-models.ts",
-    "serve": "vercel dev"
+    "serve": "vercel dev",
+    "questions": "tsx scripts/questions.ts"
   },
   "dependencies": {
     "@google/genai": "^2.27.0",
-    "@upstash/ratelimit": "^2.2.0",
-    "@upstash/redis": "^1.39.0"
+    "@vercel/functions": "^3.9.11",
+    "mongodb": "^7.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
